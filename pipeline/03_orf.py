@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 import pysam
 
-from juncta.peptide import found_in, matches, read_gtf
+from juncta.peptide import cleavage_sites, found_in, matches, read_gtf
 
 ENSEMBL_PEP = "data/ensembl91_pep/Homo_sapiens.GRCh38.pep.all.fa.gz"
 REFERENCES = [ENSEMBL_PEP, "data/uniprot_ref/UP000005640_9606.fasta.gz",
@@ -179,7 +179,7 @@ proteins[["junction_id", "orf_class", "tier", "name_d", "name_a", "gene_d", "gen
 peptides = []
 for r in proteins[~proteins.orf_class.isin(NOT_CHIMERIC) & (proteins.prot_chim.str.len() > 0)].itertuples():
     start, junction, junction_aa, p = int(r.orf_start), int(r.junction_nt), int(r.junction_aa), r.prot_chim
-    cut = [0] + [i + 1 for i in range(len(p) - 1) if p[i] in "KR" and p[i + 1] != "P"] + [len(p)]
+    cut = [0] + cleavage_sites(p) + [len(p)]
     # Trypsin, <= 2 missed cleavages, 7-35 aa.
     for a, b in [(a, b) for i, a in enumerate(cut[:-1]) for b in cut[i + 1:i + 4] if 7 <= b - a <= 35]:
         if r.orf_class in ("in_frame", "in_frame_early_stop"):

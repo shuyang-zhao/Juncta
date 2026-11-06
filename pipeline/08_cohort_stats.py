@@ -9,7 +9,7 @@ import pandas as pd
 
 from juncta.config import length_bin
 from juncta.match import rank1_psms
-from juncta.stats import bh, models_with_validation, surv
+from juncta.stats import bh, hit_rate, models_with_validation, surv
 
 cdir, ddir, project, out = sys.argv[1:5]
 os.makedirs(out, exist_ok=True)
@@ -45,7 +45,7 @@ key = np.where(entries.decoy, "CHIMd|" + entries.entry, entries.cls + "|" + entr
 entries[["T", "q", "n_psm", "n_plex"]] = best[["T", "q", "n_psm", "n_plex"]].astype(float).reindex(key).values
 entries["L"] = entries.entry.str.len()
 entries["lb"] = length_bin(entries.L)
-hit = entries[entries.decoy]["T"].notna().groupby(entries.lb).mean()   # pi_hit, from the CHIM decoy entries
+hit = hit_rate(entries["T"][entries.decoy].notna(), entries.lb[entries.decoy])   # pi_hit, from the CHIM decoy entries
 decoys = pd.read_parquet(f"{cdir}/decoy_best.parquet", columns=["stripped_peptide", "T"])
 models, F, validation = models_with_validation(decoys["T"].values, length_bin(decoys.stripped_peptide.str.len()), 1000)
 validation.to_csv(f"{out}/gpd_validation.tsv", sep="\t", index=False)

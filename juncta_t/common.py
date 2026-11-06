@@ -14,6 +14,9 @@ OB = CONFIG["optionb"]
 RESULTS = "results/cptac/dl"
 OPTIONB_COHORTS = ["PDC000127", "PDC000125", "PDC000204"]   # CCRCC, UCEC, GBM: the cohorts with local MGFs
 N_STRATA = len(LENGTH_BINS) - 1
+# Evaluation is cross-fitted. Unit (fold f, half h) is scored by S_{1 - f % 2, 1 - h} and ET_{f % 2, h}, so neither
+# model saw its genes or plexes. The test folds are locked for model selection, not sealed from training: S_{f % 2, h},
+# which makes the training features of ET_{f % 2, h}, trains on unit (f, h) itself.
 # set: folds, PSM evaluation, ET evaluation, ET score prefix, unit kind
 SETS = {"dev_f0123": ((0, 1, 2, 3), "dev_f0123_a9", "eval_a9", "score", "full"),
         "test_f45": ((4, 5), "test_f45_a9", "test_a9", "test_score", "full"),
