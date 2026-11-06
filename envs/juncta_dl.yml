@@ -1,0 +1,19 @@
+# Juncta-T. Spectrum-model training on a GPU used torch 2.7.1 with CUDA 12.8.
+name: juncta_dl
+channels: [conda-forge]
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+      - pandas==2.3.3
+      - numpy==2.4.6
+      - scipy==1.17.1
+      - pyarrow==26.0.0
+      - torch==2.14.1
+      - ms2pip==4.2.0
+      - deeplc==4.5.0
+      - psm-utils==1.5.5
+      - mokapot==0.10.0
+      - pyyaml==6.0.3
+      - pyahocorasick==2.3.1
+      - pytest

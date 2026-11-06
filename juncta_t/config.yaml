@@ -1,0 +1,15 @@
+# Settings of the final Juncta-T run.
+spectrum_model:   # stage 1, 12.67 M parameters; max_len = Sage max_len; mz_lambda = sinusoid wavelength range (Da)
+  {d_model: 256, n_heads: 8, enc_layers: 6, dec_layers: 4, set_layers: 2, ff: 1024, dropout: 0.1, max_len: 40,
+   ion_charges: [1, 2], frag_tol_ppm: 20.0, mz_lambda: [0.001, 2000.0], emb_dim: 128, temperature: 0.07}
+training:   # stage 1, one GPU, bf16 autocast; p_none = labelled spectra that lose their true candidate on the fly
+  {seed: 1234, batch: 256, pretrain: {epochs: 1, lr: 3.0e-4}, finetune: {epochs: 3, lr: 1.0e-4}, warmup_steps: 2000,
+   weight_decay: 0.01, adam_betas: [0.9, 0.98], grad_clip: 1.0, p_none: 0.15, label_q_pos: 0.001,
+   loss_weights: {cand: 1.0, contrastive: 0.2}}
+entry_model:   # set transformer, ~70k parameters, CPU, fp32; cap = tokens per set; seeds = seed + 0, 1, 2
+  {d: 64, heads: 4, layers: 2, ff: 128, dropout: 0.1, lr: 1.0e-3, weight_decay: 0.01, batch: 256, epochs: 12, cap: 64,
+   seed: 20261103, group_weights: {pos: 1.0, DECOY: 1.0, NNEG: 0.5, REJ: 0.5, MOD: 0.5}}
+optionb:   # fold_frac = held-out share of all eligible junctions per fold; match_tau = tempering of the density ratios;
+           # nneg_ref, rej_eval, n_mod = known-false entries per fold; label_q = spectrum_q of a true PSEUDO PSM
+  {seed: 20261103, n_folds: 6, fold_frac: 0.08, match_tau: 0.5, low_abund_boost: 1.5, nneg_ref: 10000, rej_eval: 10000,
+   n_mod: 5000, label_q: 0.01}

@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "juncta"
+version = "0.1.0"
+description = "Calibrated search for protein products of chimeric RNAs, with a transformer rescorer"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+
+[tool.setuptools]
+packages = ["juncta", "juncta_t"]
+
+[tool.setuptools.package-data]
+juncta_t = ["config.yaml"]
