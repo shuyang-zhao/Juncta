@@ -1,14 +1,13 @@
 """Union peptide database of all cohorts and its hypothesis flags: every cohort is searched against the same hypotheses.
 usage: 04_union_db.py <out_dir>. Writes db.fasta (reference, CHIMPEP_<i>|<pep>, ENTR_<i>|<target>), peptide_groups.tsv,
-chim_peptides_kept.txt, entrapment.tsv (one K/R- and C-term-preserving shuffle per kept peptide), chimpep_flags.tsv."""
+chim_peptides_kept.txt, entrapment.tsv (one shuffle per kept peptide that digests like it), chimpep_flags.tsv."""
 import os
-import random
 import sys
 
 import pandas as pd
 
 from juncta.config import COHORTS
-from juncta.peptide import REFERENCE, found_in, read_gtf
+from juncta.peptide import REFERENCE, found_in, read_gtf, shuffle_entrapments
 
 out = sys.argv[1]
 os.makedirs(out, exist_ok=True)
@@ -67,25 +66,7 @@ in_family = groups.name_d.fillna("").str.contains(FAMILY_FILTER) | groups.name_a
 groups["flag_family"] = (has_pseudogene | in_family) & ~is_benchmark
 keep = sorted(set(groups.peptide) - (set(groups[groups.flag_family].peptide) - set(groups[is_benchmark].peptide)))
 
-# One random stream walks the sorted kept list, so the kept set fixes every entrapment.
-targets = {p.replace("I", "L") for p in keep}
-rng = random.Random(20261103)
-used = set()
-entrapments = []
-for p in keep:
-    free = [i for i in range(len(p) - 1) if p[i] not in "KR"]
-    for _ in range(200):
-        residues = [p[i] for i in free]
-        rng.shuffle(residues)
-        shuffled = list(p)
-        for i, a in zip(free, residues):
-            shuffled[i] = a
-        e = "".join(shuffled)
-        key = e.replace("I", "L")
-        if key not in targets and key not in used:
-            used.add(key)
-            entrapments.append((e, p))
-            break
+entrapments = shuffle_entrapments(keep)   # the sorted kept list fixes every entrapment
 
 with open(f"{out}/db.fasta", "w") as fasta:
     fasta.write(open(REFERENCE).read())

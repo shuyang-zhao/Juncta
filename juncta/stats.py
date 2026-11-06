@@ -4,12 +4,24 @@ import numpy as np
 import pandas as pd
 from scipy.stats import genpareto
 
+MIN_TAIL = 50   # the fewest values of a fitted tail, at most half of its stratum
+
+
+def hit_rate(hit, strata):
+    """Per stratum, the decoy-entry hit rate as (x + 1) / (n + 1), the convention of surv(): a stratum whose n decoys
+    gave no hit bounds the rate near 1 / n, it does not show that the rate is zero."""
+    groups = pd.Series(np.asarray(hit, bool)).groupby(np.asarray(strata))
+    return (groups.sum() + 1) / (groups.size() + 1)
+
 
 def fit(s, K):
-    """GPD fit to the top K values of s. Returns (sorted s, n, k, threshold, shape, scale)."""
+    """GPD fit to the top K values of s. Returns (sorted s, n, k, threshold, shape, scale); with fewer than 2 * MIN_TAIL
+    values there is no tail (k = 0, threshold infinite) and surv() stays empirical."""
     s = np.sort(s)
     n = len(s)
-    k = min(K, max(50, n // 20))
+    if n < 2 * MIN_TAIL:
+        return s, n, 0, np.inf, 0.0, 1.0
+    k = min(K, max(MIN_TAIL, n // 20))
     u = s[n - k - 1]
     y = s[n - k:] - u
     c, _, sc = genpareto.fit(y, floc=0)
@@ -39,6 +51,8 @@ def models_with_validation(values, strata, K, seed=7):
         idx = rng.permutation(len(x))
         A, B = x[idx[: len(x) // 2]], x[idx[len(x) // 2:]]
         mA = fit(A, K)
+        if mA[2] == 0:
+            continue
         sB = np.sort(B)
         for q in [1e-3, 1e-4, 3e-5, 1e-5]:
             lo, hi = mA[3], mA[0][-1] + 50   # bisection for the threshold where the half-A fit predicts survival q
@@ -47,7 +61,7 @@ def models_with_validation(values, strata, K, seed=7):
                 (lo, hi) = (mid, hi) if surv([mid], mA)[0] > q else (lo, mid)
             n_above = len(sB) - np.searchsorted(sB, (lo + hi) / 2, side="left")
             val.append({"lb": b, "pred": q, "n_obs_B": int(n_above), "expected_n_B": q * len(sB)})
-    V = pd.DataFrame(val)
+    V = pd.DataFrame(val, columns=["lb", "pred", "n_obs_B", "expected_n_B"])
     agg = V[V.pred <= 3e-5].groupby("pred").agg(e=("expected_n_B", "sum"), o=("n_obs_B", "sum"))
     return models, float(max(1.0, ((agg.o + 1) / (agg.e + 1)).max())), V
 

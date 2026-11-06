@@ -1,6 +1,7 @@
 """PepQuery on a (cohort, peptide) row set, on every rank-1 full-length PSM of the peptide at spectrum_q <= 0.01.
 usage: 10_pepquery.py <rows.tsv> <out_dir> [--entrapment] [--skip pq_by_cohort.tsv ...]; PEPQUERY_JAR names the jar.
---entrapment adds every ENTR target PSM of those cohorts; --skip leaves out tested rows. Writes pq_by_cohort.tsv."""
+--entrapment adds every ENTR target PSM of those cohorts; --skip leaves out tested rows. Writes pq_by_cohort.tsv; rows
+without such a PSM stay out of it, untested."""
 import os
 import subprocess
 import sys
@@ -37,6 +38,10 @@ with open(f"{out}/spectra.mgf", "w") as mgf:
                     # PepQuery reports spectrum_title as the 1-based ordinal of the spectrum.
                     mgf.write(f"BEGIN IONS\nTITLE=S{n_spectra}\n" + "".join(lines[1:]) + "END IONS\n")
             queries.append(psms[["stripped_peptide", "cls"]].assign(cohort=name, ordinal=titles.map(ordinals)))
+if not queries or all(q.empty for q in queries):   # a screen without candidates is a result
+    columns = ["cohort", "peptide", "cls", "n_spectra_tested", "n_confident", "best_p", "pq_validated"]
+    pd.DataFrame(columns=columns).to_csv(f"{out}/pq_by_cohort.tsv", sep="\t", index=False)
+    sys.exit()
 queries = pd.concat(queries, ignore_index=True)
 open(f"{out}/peptides.txt", "w").write("\n".join(sorted(set(queries.stripped_peptide))) + "\n")
 subprocess.run(["java", "-Xmx120G", "-jar", os.environ["PEPQUERY_JAR"], "-i", f"{out}/peptides.txt", "-t", "peptide",

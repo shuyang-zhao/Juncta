@@ -1,6 +1,7 @@
 """Cross-cohort lists and the pan-cancer Tippett test: per cohort x = -ln S(T | L) (no pi_hit; 0 with no rank-1 hit),
 A = the maximum x against the union pool of decoys, p_agg = pi_hit_agg(L) * S_A(A | L), one BH in the disc CHIM class.
-Writes summary/global_tier_all.tsv, mainlist/mainlist_by_cohort.tsv, hits_class5_gpd.tsv, tippett/."""
+Writes summary/global_tier_all.tsv, mainlist/mainlist_by_cohort.tsv, hits_class5_gpd.tsv, tippett/, and
+candidate_rows.tsv, the (cohort, peptide) rows that 10_pepquery.py tests and 11_main_table.py judges."""
 import os
 
 import numpy as np
@@ -8,7 +9,7 @@ import pandas as pd
 
 from juncta.config import PDC2NAME, length_bin
 from juncta.match import rank1_psms
-from juncta.stats import apply_surv, bh, models_with_validation
+from juncta.stats import apply_surv, bh, hit_rate, models_with_validation
 
 PAN = "results/cptac/pan"
 AGG = "results/cptac/pan/tippett"
@@ -52,7 +53,7 @@ strata = length_bin(pd.Series(union_pool.index).str.len().values)
 entry_x = entries[[f"x_{pdc}" for pdc in PDC2NAME]].values
 A = entry_x.max(axis=1)
 chim_decoy = ((entries.cls == "CHIM") & entries.decoy).values
-pi = pd.Series((entry_x > 0).any(axis=1)[chim_decoy]).groupby(entries.lb.values[chim_decoy]).mean()
+pi = hit_rate((entry_x > 0).any(axis=1)[chim_decoy], entries.lb.values[chim_decoy])
 models, F, _ = models_with_validation(union_pool.values.max(axis=1), strata, 1000)
 survival = apply_surv(A, entries.lb.values, models, F)
 entries["pagg_tippett"] = np.where(A > 0, np.minimum(1, entries.lb.map(pi).fillna(pi.mean()).values * survival), 1.0)
@@ -65,7 +66,7 @@ p = entries.pagg_tippett.values
 rows = []
 for alpha, column in [(0.01, "bh01_pagg_tippett"), (0.05, "bh05_pagg_tippett")]:
     rejected = bh(p[target], alpha)
-    cut = p[target][rejected].max()
+    cut = p[target][rejected].max() if rejected.any() else 0.0
     entries[column] = False
     entries.loc[target, column] = rejected
     rows.append(dict(alpha=alpha, union_pool=len(union_pool), discoveries=int(rejected.sum()), p_cutoff=cut,
@@ -74,3 +75,9 @@ for alpha, column in [(0.01, "bh01_pagg_tippett"), (0.05, "bh05_pagg_tippett")]:
                      entr_under_cutoff=int((p[entrapment] <= cut).sum())))
 pd.DataFrame(rows).to_csv(f"{AGG}/summary.tsv", sep="\t", index=False)
 entries.to_csv(f"{AGG}/entries_agg.tsv.gz", sep="\t", index=False)
+
+# Class FDR 5 % rows, and Tippett 5 % entries in every cohort with a PSM: a hit can pass outside its class-FDR cohorts.
+tippett5 = entries[entries.bh05_pagg_tippett]
+rows = class5 + [(name, p) for pdc, name in PDC2NAME.items() for p in tippett5.entry[tippett5[f"p_{pdc}"] < 1]]
+pd.DataFrame(rows, columns=["cohort", "peptide"]).drop_duplicates().to_csv(f"{PAN}/candidate_rows.tsv", sep="\t",
+                                                                           index=False)

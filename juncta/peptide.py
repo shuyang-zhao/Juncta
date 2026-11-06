@@ -1,7 +1,10 @@
-"""FASTA and GTF reading, residue masses and the neighbour-ion rule: a peptide passes with >= 2 distinct cleavage sites
-matched beyond its longest reference-shared prefix and suffix (>= 3 aa, I = L). Ions carry TMT on the N-terminus and K,
-Cam C and the Met-oxidation count that best fits the precursor, and match as 1+ (and 2+ when z >= 3) among top peaks."""
+"""FASTA and GTF reading, tryptic sites, entrapments, residue masses and the neighbour-ion rule: a peptide passes with
+>= 2 distinct cleavage sites matched beyond its longest reference-shared prefix and suffix (>= 3 aa, I = L). Ions carry
+TMT on the N-terminus and K, Cam C and the Met oxidations of the PSM, and match as 1+ (and 2+ when z >= 3) among top
+peaks."""
 import gzip
+import random
+import re
 
 import numpy as np
 import pandas as pd
@@ -34,17 +37,23 @@ def read_gtf(features, *attributes):
 
 
 def matches(peptides, paths):
-    """Yield (header, peptide) of every occurrence (I = L). I/L-equivalent peptides share a key; the last one wins."""
+    """Yield (header, peptide) of every occurrence (I = L), for each input peptide of an I/L-equivalent group."""
     import ahocorasick   # absent from the deep-learning environment, which only needs the masses
 
-    automaton = ahocorasick.Automaton()
+    groups = {}
     for p in peptides:
-        automaton.add_word(p.replace("I", "L"), p)
+        groups.setdefault(p.replace("I", "L"), set()).add(p)
+    if not groups:
+        return
+    automaton = ahocorasick.Automaton()
+    for key, group in groups.items():
+        automaton.add_word(key, sorted(group))
     automaton.make_automaton()
     for path in paths:
         for header, seq in read_fasta(path):
-            for _, p in automaton.iter(seq.replace("I", "L")):
-                yield header, p
+            for _, group in automaton.iter(seq.replace("I", "L")):
+                for p in group:
+                    yield header, p
 
 
 def found_in(peptides, paths):
@@ -68,18 +77,52 @@ def ends(p, pieces):
             max([k for k in range(3, len(q) + 1) if q[-k:] in pieces], default=0))
 
 
-def ions(p, nox):
-    """b ions, y ions (1+) and the neutral mass of the TMT-labelled peptide with nox oxidised methionines."""
+def cleavage_sites(p):
+    """Offsets of the tryptic cleavages inside p: after K or R, except before P."""
+    return [i + 1 for i in range(len(p) - 1) if p[i] in "KR" and p[i + 1] != "P"]
+
+
+def shuffle_entrapments(peptides, seed=20261103):
+    """(entrapment, peptide) pairs: a shuffle that keeps K, R, each P after them and the C-terminus, so the entrapment
+    digests like its peptide, and that is no peptide or earlier entrapment (I = L). One random stream walks the list."""
+    targets = {p.replace("I", "L") for p in peptides}
+    rng = random.Random(seed)
+    used, pairs = set(), []
+    for p in peptides:
+        free = [i for i in range(len(p) - 1) if p[i] not in "KR" and not (p[i] == "P" and i and p[i - 1] in "KR")]
+        for _ in range(200):
+            residues = [p[i] for i in free]
+            rng.shuffle(residues)
+            shuffled = list(p)
+            for i, a in zip(free, residues):
+                shuffled[i] = a
+            e = "".join(shuffled)
+            key = e.replace("I", "L")
+            if key not in targets and key not in used and cleavage_sites(e) == cleavage_sites(p):
+                used.add(key)
+                pairs.append((e, p))
+                break
+    return pairs
+
+
+def parse_modified(modified):
+    """Sequence and 0-based oxidised-Met positions of a Sage peptide, as [+229.16293]-AM[+15.994915]K[+229.16293]."""
+    residues = re.findall(r"([A-Z])(\[[^]]*\])?", modified)
+    oxidised = [i for i, (a, mod) in enumerate(residues) if a == "M" and mod.startswith("[+15.99")]
+    return "".join(a for a, _ in residues), oxidised
+
+
+def ions(p, oxidised=()):
+    """b ions, y ions (1+) and the neutral mass of the TMT-labelled peptide with these 0-based oxidised positions."""
     m = np.array([AA[a] + (LAB if a == "K" else 0) for a in p])
-    if nox:
-        m[[i for i, a in enumerate(p) if a == "M"][:nox]] += OX
+    m[list(oxidised)] += OX
     return np.cumsum(m)[:-1] + LAB + PROTON, np.cumsum(m[::-1])[:-1] + H2O + PROTON, m.sum() + LAB + H2O
 
 
-def matched_ions(p, pepmass, z, mz, tol=0.02):
-    """Sets of matched b and y ion numbers of p in the peak list mz; the default tolerance is Orbitrap MS2, in Da."""
-    nox = min(range(p.count("M") + 1), key=lambda k: abs(ions(p, k)[2] - (pepmass - PROTON) * z))
-    b, y, _ = ions(p, nox)
+def matched_ions(modified, z, mz, tol=0.02):
+    """Sets of matched b and y ion numbers of a Sage peptide in the peak list mz; the default tolerance is Orbitrap MS2,
+    in Da."""
+    b, y, _ = ions(*parse_modified(modified))
     hit_b, hit_y = set(), set()
     for hits, series in ((hit_b, b), (hit_y, y)):
         for i, v in enumerate(series, start=1):

@@ -4,7 +4,6 @@ usage: python -m juncta_t.evaluate psm|R3_ET0|R1b_ETk <set of juncta_t.common.SE
 import functools
 import json
 import os
-import re
 import sys
 
 import numpy as np
@@ -12,9 +11,8 @@ import pandas as pd
 from scipy.stats import binom, ks_2samp
 
 from juncta.config import length_bin
-from juncta.peptide import PROTON as RULE_PROTON
-from juncta.peptide import ions, specific_sites
-from juncta.stats import apply_surv, bh, models_with_validation, surv
+from juncta.peptide import matched_ions, parse_modified, specific_sites
+from juncta.stats import apply_surv, bh, hit_rate, models_with_validation, surv
 from juncta_t.common import OPTIONB_COHORTS, RESULTS, SETS, crc, il, sage_decoy, stratum_map
 from juncta_t.model_entry import TOKEN_FEATS, fold_entries, fold_worlds, load_unit, load_world, prod_entries
 
@@ -39,15 +37,8 @@ def final_survival(values, strata, models, F):
 
 def rule_sites(modified_peptide, mz, charge, shared_prefix, shared_suffix):
     """Number of junction-specific bond sites with a fragment within 0.02 Da (1+, and 2+ when z >= 3)."""
-    peptide = re.sub(r"\[[^\]]*\]-?", "", modified_peptide)
-    mz = mz[mz > 0]
-
-    def matched(series):
-        forms = [series, (series + RULE_PROTON) / 2] if charge >= 3 else [series]
-        return {i for form in forms for i, ion in enumerate(form, start=1) if (np.abs(mz - ion) <= 0.02).any()}
-
-    b_ions, y_ions, _ = ions(peptide, modified_peptide.count("M[+15.99"))
-    return len(specific_sites(peptide, matched(b_ions), matched(y_ions), shared_prefix, shared_suffix))
+    hit_b, hit_y = matched_ions(modified_peptide, charge, mz[mz > 0])
+    return len(specific_sites(parse_modified(modified_peptide)[0], hit_b, hit_y, shared_prefix, shared_suffix))
 
 
 @functools.lru_cache(maxsize=6)
@@ -123,7 +114,7 @@ def aggregate_null(per, null):
 
 def p_values(A, A_decoy, lb, reference, mapping, models, F):
     """p = pi_hit(L) x S_A(A | L); pi_hit = the fraction of the reference entries' decoys with a hit, per length bin."""
-    hit = pd.Series(A_decoy[reference] > 0).groupby(lb[reference]).mean()
+    hit = hit_rate(A_decoy[reference] > 0, lb[reference])
     pi_hit = pd.Series(lb).map(hit).fillna(hit.mean()).values
     return np.where(A > 0, np.minimum(1, pi_hit * final_survival(A, mapping[lb], models, F)), 1.0)
 

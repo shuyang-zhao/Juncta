@@ -99,7 +99,7 @@ def fit_and_score(X, cfeat, decoy, ii, kk, peptides, n, K):
     columns = dict(target_column="target", spectrum_columns=["spec"], peptide_column="pep", feature_columns=names)
     for f in range(3):
         training = table[(fold != f) & table.rank1]
-        training = training.sample(300_000, random_state=f)
+        training = training.sample(min(300_000, len(training)), random_state=f)
         model = mokapot.PercolatorModel(train_fdr=0.01, max_iter=10, n_jobs=PROCS, rng=f)
         model.fit(mokapot.LinearPsmDataset(training, **columns))
         scores[ii[fold == f], kk[fold == f]] = model.predict(mokapot.LinearPsmDataset(table[fold == f], **columns))
